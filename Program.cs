@@ -1,30 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Diagnostics.Metrics;
-using System.IO;
-using System.Linq;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using FFMpegCore;
-using FFMpegCore.Enums;
 
 namespace YouTubeNormalizerApp
 {
     public class ProcessedFile
-    {
-#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
-        public string OriginalPath { get; set; }
-#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
-        public string NormalizedPath { get; set; }
-#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
-        public double MeasuredI { get; set; }
-        public double MeasuredTp { get; set; }
-        public double MeasuredLRA { get; set; }
-        public double MeasuredThresh { get; set; }
-        public double Offset { get; set; }
+    {   public string? OriginalPath { get; set; }
+        public string? NormalizedPath { get; set; }
     }
 
     public class YouTubeNormalizer
@@ -33,7 +16,7 @@ namespace YouTubeNormalizerApp
         private readonly string _sourceFolder;
         private readonly string _normalizedFolder;
         private readonly string _ffmpegPath;
-        private double DEFAULT_SOURCE_LUFS =-14;
+
 
         public YouTubeNormalizer(string sourceFolder, string normalizedFolder, string ffmpegPath = "ffmpeg")
         {
@@ -78,7 +61,7 @@ namespace YouTubeNormalizerApp
                     {
                         OriginalPath = videoFile,
                         NormalizedPath = normalizedFile,
-                        MeasuredI = actualLufs.MeasuredI
+                     //   MeasuredI = actualLufs.MeasuredI
                     });
 
                     Console.WriteLine($"Normalized and saved to: {Path.GetFileName(normalizedFile)}");
@@ -194,11 +177,9 @@ namespace YouTubeNormalizerApp
             catch (Exception ex)
             {
                 Console.WriteLine($"LUFS measurement failed: {ex.Message}");
-                Console.WriteLine($"Using default LUFS: {DEFAULT_SOURCE_LUFS:F2}");
                 return null;
             }
         }
-
 
 
         private LoudnormMeasurements ParseLUFSFromJson(string stderr)
@@ -256,7 +237,7 @@ namespace YouTubeNormalizerApp
             var stderr = new StringBuilder();
             var stdout = new StringBuilder();
 
-            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I=-14:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy \"{outputFile}\"";
+            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I=-14:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy -c:a aac -profile:a aac_he_v2 -b:a 512k -q:a 1 -ar 96000 \"{outputFile}\"";
 
 
             // Since FFMpegCore doesn't expose stderr directly, we need to use Process
@@ -304,51 +285,71 @@ namespace YouTubeNormalizerApp
             return outputFile;
         }
 
-
-        private async Task ConcatenateVideosAsync(List<ProcessedFile> files)
+        public async Task ConcatenateVideosAsync(List<ProcessedFile> videoFiles)
         {
-            var outputPath = Path.Combine(_normalizedFolder, "final_concatenated.mp4");
+            var outputFile = Path.Combine(_normalizedFolder, "final_concatenated.mp4");
+
+            // Create temporary filelist content
+            var fileListContent = string.Join("\n", videoFiles.Select(f => $"file '{f}'"));
+            var tempFileList = Path.GetTempFileName();
 
             try
             {
-                Console.WriteLine("Concatenating all normalized videos...");
+                await File.WriteAllTextAsync(tempFileList, fileListContent);
 
-                await FFMpegArguments
-                    .FromConcatInput(files.Select(f => f.NormalizedPath))
-                    .OutputToFile(outputPath, overwrite: true, options => options
-                        .WithCustomArgument("-c copy")) // Copy all streams - no re-encoding
-                    .NotifyOnProgress(progress =>
-                    {
-                        Console.Write($"\rConcatenation Progress: {progress.ToString()}");
-                    })
-                    .ProcessAsynchronously();
+                Console.WriteLine("Concatenating videos...");
+                var stderr = new StringBuilder();
+                var stdout = new StringBuilder();
 
-                Console.WriteLine("\nConcatenation completed successfully!");
+                var arg = $"-f concat -safe 0 -i \"{tempFileList}\" -c copy -y \"{outputFile}\"";
 
-                // Show final video info
-                if (File.Exists(outputPath))
+                using var process = new Process
                 {
-                    var fileInfo = new FileInfo(outputPath);
-                    Console.WriteLine($"Final video size: {fileInfo.Length / (1024 * 1024):F1} MB");
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "ffmpeg",
+                        Arguments = arg,
+                        UseShellExecute = false,
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true
+                    }
+                };
 
-                    // Get final video duration
-                    try
+                process.OutputDataReceived += (sender, e) => {
+                    if (e.Data != null)
                     {
-                        var mediaInfo = await FFProbe.AnalyseAsync(outputPath);
-                        Console.WriteLine($"Total duration: {mediaInfo.Duration:hh\\:mm\\:ss}");
+                        stdout.AppendLine(e.Data);
+                        Console.WriteLine(e.Data);
                     }
-                    catch
+                };
+
+                process.ErrorDataReceived += (sender, e) => {
+                    if (e.Data != null)
                     {
-                        // Ignore if we can't get duration
+                        stderr.AppendLine(e.Data);
+                        Console.WriteLine(e.Data);
                     }
+                };
+
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                if (!process.WaitForExit(300000)) // 5 minutes timeout
+                {
+                    process.Kill();
+                    throw new TimeoutException("Concatenation timed out");
                 }
+
+                Console.WriteLine("Concatenation completed!");
             }
-            catch (Exception ex)
+            finally
             {
-                Console.WriteLine($"\nConcatenation failed: {ex.Message}");
-                throw;
+                if (File.Exists(tempFileList))
+                    File.Delete(tempFileList);
             }
-        }
+        }   
     }
 
     class Program

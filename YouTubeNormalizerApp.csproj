@@ -12,10 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FFMpegCore" Version="5.2.0" />
-  </ItemGroup>
-
-  <ItemGroup>
     <None Update="ffmpeg.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
