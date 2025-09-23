@@ -276,7 +276,7 @@ namespace YouTubeNormalizerApp
             process.OutputDataReceived += (sender, e) => {
                 if (e.Data != null)
                 {
-                    stdout.AppendLine(e.Data); ; Console.WriteLine(e.Data);
+                    stdout.AppendLine(e.Data); Console.WriteLine(e.Data);
                 }
             };
 
