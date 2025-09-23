@@ -8,14 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="ffprobe.exe" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="FFMpegCore" Version="5.2.0" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="ffmpeg.exe">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="ffprobe.exe">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

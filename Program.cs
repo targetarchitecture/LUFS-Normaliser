@@ -256,6 +256,8 @@ namespace YouTubeNormalizerApp
             var stderr = new StringBuilder();
             var stdout = new StringBuilder();
 
+            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I=-14:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy \"{outputFile}\"";
+
 
             // Since FFMpegCore doesn't expose stderr directly, we need to use Process
             using var process = new Process
@@ -263,7 +265,7 @@ namespace YouTubeNormalizerApp
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "ffmpeg",
-                    Arguments = $"-i \"{inputFile}\" -af \"loudnorm=I=-14:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy \"{outputFile}\"",
+                    Arguments = arg,
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     RedirectStandardOutput = true,
@@ -279,7 +281,8 @@ namespace YouTubeNormalizerApp
             };
 
             process.ErrorDataReceived += (sender, e) => {
-                if (e.Data != null) { stderr.AppendLine(e.Data); Console.WriteLine(e.Data); }
+                if (e.Data != null) { stderr.AppendLine(e.Data); 
+                    Console.WriteLine(e.Data); }
 
             };
 
@@ -296,10 +299,7 @@ namespace YouTubeNormalizerApp
 
             var stderrContent = stderr.ToString();
 
-            Console.WriteLine("Normalization completed!");
-
-
- 
+            Console.WriteLine("Normalization completed!"); 
 
             return outputFile;
         }
