@@ -15,14 +15,14 @@ namespace YouTubeNormalizerApp
         private const double TARGET_LUFS = -14.0; // YouTube recommended LUFS
         private readonly string _sourceFolder;
         private readonly string _normalizedFolder;
-     private readonly string _ffmpegPath;
+     //private readonly string _ffmpegPath;
 
 
-        public YouTubeNormalizer(string sourceFolder, string normalizedFolder, string ffmpegPath = "ffmpeg")
+        public YouTubeNormalizer(string sourceFolder, string normalizedFolder) //, string ffmpegPath = "ffmpeg")
         {
             _sourceFolder = sourceFolder ?? throw new ArgumentNullException(nameof(sourceFolder));
             _normalizedFolder = normalizedFolder ?? throw new ArgumentNullException(nameof(normalizedFolder));
-            _ffmpegPath = ffmpegPath;
+           // _ffmpegPath = ffmpegPath;
 
             // Create normalized folder if it doesn't exist
             Directory.CreateDirectory(_normalizedFolder);
@@ -237,10 +237,12 @@ namespace YouTubeNormalizerApp
             var stderr = new StringBuilder();
             var stdout = new StringBuilder();
 
-            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I={TARGET_LUFS}:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy -c:a aac -profile:a aac_he_v2 -b:a 512k -q:a 1 -ar 96000 \"{outputFile}\"";
+            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I={TARGET_LUFS}:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:" +
+                $"measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:" +
+                $"offset={currentLufs.Offset}:linear=true:print_format=summary\" " +
+                $"-c:v copy -c:a aac -b:a 320k -ar 48000 \"{outputFile}\"";
 
-
-            // Since FFMpegCore doesn't expose stderr directly, we need to use Process
+             // Since FFMpegCore doesn't expose stderr directly, we need to use Process
             using var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -301,7 +303,7 @@ namespace YouTubeNormalizerApp
                 var stderr = new StringBuilder();
                 var stdout = new StringBuilder();
 
-                var arg = $"-f concat -safe 0 -i \"{tempFileList}\" -c copy -y \"{outputFile}\"";
+                var arg = $"-f concat -safe 0 -i \"{tempFileList}\" -c copy -avoid_negative_ts make_zero -fflags +genpts -y \"{outputFile}\"";
 
                 using var process = new Process
                 {
@@ -361,7 +363,7 @@ namespace YouTubeNormalizerApp
                 // Configure paths
                 var sourceFolder = @"D:\Temp\2024";
                 var normalizedFolder = @"D:\Temp\2024\Normalized";
-                var ffmpegPath = "ffmpeg"; // or full path like @"C:\Tools\ffmpeg\bin\ffmpeg.exe"
+               // var ffmpegPath = "ffmpeg"; // or full path like @"C:\Tools\ffmpeg\bin\ffmpeg.exe"
 
                 // Command line arguments override
                 if (args.Length >= 2)
@@ -369,10 +371,10 @@ namespace YouTubeNormalizerApp
                     sourceFolder = args[0];
                     normalizedFolder = args[1];
                 }
-                if (args.Length >= 3)
-                {
-                    ffmpegPath = args[2];
-                }
+                //if (args.Length >= 3)
+                //{
+                //    ffmpegPath = args[2];
+                //}
 
                 Console.WriteLine($"Source folder: {sourceFolder}");
                 Console.WriteLine($"Output folder: {normalizedFolder}");
@@ -385,7 +387,7 @@ namespace YouTubeNormalizerApp
                     return;
                 }
 
-                var normalizer = new YouTubeNormalizer(sourceFolder, normalizedFolder, ffmpegPath);
+                var normalizer = new YouTubeNormalizer(sourceFolder, normalizedFolder); //, ffmpegPath);
                 await normalizer.ProcessVideosAsync();
 
                 Console.WriteLine("\nPress any key to exit...");
