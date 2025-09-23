@@ -15,7 +15,7 @@ namespace YouTubeNormalizerApp
         private const double TARGET_LUFS = -14.0; // YouTube recommended LUFS
         private readonly string _sourceFolder;
         private readonly string _normalizedFolder;
-        private readonly string _ffmpegPath;
+     private readonly string _ffmpegPath;
 
 
         public YouTubeNormalizer(string sourceFolder, string normalizedFolder, string ffmpegPath = "ffmpeg")
@@ -232,12 +232,12 @@ namespace YouTubeNormalizerApp
             var outputFile = Path.Combine(_normalizedFolder, $"{fileName}_normalized{extension}");
 
             // Calculate the adjustment needed
-            Console.WriteLine("Normalizing audio to -14 LUFS for YouTube...");
+            Console.WriteLine($"Normalizing audio to {TARGET_LUFS} LUFS for YouTube...");
 
             var stderr = new StringBuilder();
             var stdout = new StringBuilder();
 
-            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I=-14:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy -c:a aac -profile:a aac_he_v2 -b:a 512k -q:a 1 -ar 96000 \"{outputFile}\"";
+            var arg = $"-y -i \"{inputFile}\" -af \"loudnorm=I={TARGET_LUFS}:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy -c:a aac -profile:a aac_he_v2 -b:a 512k -q:a 1 -ar 96000 \"{outputFile}\"";
 
 
             // Since FFMpegCore doesn't expose stderr directly, we need to use Process
@@ -290,7 +290,7 @@ namespace YouTubeNormalizerApp
             var outputFile = Path.Combine(_normalizedFolder, "final_concatenated.mp4");
 
             // Create temporary filelist content
-            var fileListContent = string.Join("\n", videoFiles.Select(f => $"file '{f}'"));
+            var fileListContent = string.Join("\n", videoFiles.Select(f => $"file '{f.NormalizedPath.Replace("'", @"\'")}'"));
             var tempFileList = Path.GetTempFileName();
 
             try
