@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FFMpegCore;
@@ -13,9 +15,16 @@ namespace YouTubeNormalizerApp
 {
     public class ProcessedFile
     {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         public string OriginalPath { get; set; }
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         public string NormalizedPath { get; set; }
-        public double OriginalLUFS { get; set; }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
+        public double MeasuredI { get; set; }
+        public double MeasuredTp { get; set; }
+        public double MeasuredLRA { get; set; }
+        public double MeasuredThresh { get; set; }
+        public double Offset { get; set; }
     }
 
     public class YouTubeNormalizer
@@ -24,6 +33,7 @@ namespace YouTubeNormalizerApp
         private readonly string _sourceFolder;
         private readonly string _normalizedFolder;
         private readonly string _ffmpegPath;
+        private double DEFAULT_SOURCE_LUFS =-14;
 
         public YouTubeNormalizer(string sourceFolder, string normalizedFolder, string ffmpegPath = "ffmpeg")
         {
@@ -59,32 +69,27 @@ namespace YouTubeNormalizerApp
                     Console.WriteLine($"\nProcessing: {Path.GetFileName(videoFile)}");
 
                     // Calculate actual LUFS using FFmpeg loudnorm
-                    var actualLufs = await CalculateActualLUFSAsync(videoFile);
+                    var actualLufs = await CalculateLUFSAsync(videoFile);
                     Console.WriteLine($"Measured LUFS: {actualLufs:F2}");
 
                     var normalizedFile = await NormalizeAudioAsync(videoFile, actualLufs);
-                    var duration = await GetVideoDurationAsync(normalizedFile);
 
                     processedFiles.Add(new ProcessedFile
                     {
                         OriginalPath = videoFile,
                         NormalizedPath = normalizedFile,
-                        Duration = duration,
-                        OriginalLUFS = actualLufs
+                        MeasuredI = actualLufs.MeasuredI
                     });
 
                     Console.WriteLine($"Normalized and saved to: {Path.GetFileName(normalizedFile)}");
                 }
 
-                // Step 2: Create chapters file
-                await CreateChaptersFileAsync(processedFiles);
+ 
 
                 // Step 3: Concatenate all normalized files
                 await ConcatenateVideosAsync(processedFiles);
-
                 Console.WriteLine("\nProcess completed successfully!");
                 Console.WriteLine($"Final output: {Path.Combine(_normalizedFolder, "final_concatenated.mp4")}");
-                Console.WriteLine($"Chapters file: {Path.Combine(_normalizedFolder, "chapters.txt")}");
             }
             catch (Exception ex)
             {
@@ -92,16 +97,21 @@ namespace YouTubeNormalizerApp
                 throw;
             }
         }
-
+        public class LoudnormMeasurements
+        {
+            public double MeasuredI { get; set; }
+            public double MeasuredTp { get; set; }
+            public double MeasuredLRA { get; set; }
+            public double MeasuredThresh { get; set; }
+            public double Offset { get; set; }
+        }
         private async Task<List<string>> GetVideoFilesFromListAsync(string folder)
         {
             var filesListPath = Path.Combine(folder, "files.txt");
-
             if (!File.Exists(filesListPath))
             {
                 throw new FileNotFoundException($"files.txt not found in source folder: {filesListPath}");
             }
-
             var lines = await File.ReadAllLinesAsync(filesListPath);
             var videoFiles = new List<string>();
 
@@ -128,62 +138,171 @@ namespace YouTubeNormalizerApp
             return videoFiles;
         }
 
-        private async Task<string> NormalizeAudioAsync(string inputFile, double currentLufs)
+
+        private async Task<LoudnormMeasurements> CalculateLUFSAsync(string inputFile)
+        {
+            try
+            {
+                var stderr = new StringBuilder();
+                var stdout = new StringBuilder();
+
+                Console.WriteLine("Measuring LUFS with loudnorm filter...");
+
+                // Since FFMpegCore doesn't expose stderr directly, we need to use Process
+                // to capture the JSON output from loudnorm
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "ffmpeg",
+                        Arguments = $"-i \"{inputFile}\" -af loudnorm=print_format=json -f null -",
+                        UseShellExecute = false,
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true
+                    }
+                };
+
+                process.OutputDataReceived += (sender, e) => {
+                    if (e.Data != null) {stdout.AppendLine(e.Data); ; Console.WriteLine(e.Data);
+                }
+                };
+
+                process.ErrorDataReceived += (sender, e) => {
+                    if (e.Data != null) { stderr.AppendLine(e.Data); Console.WriteLine(e.Data); }
+
+                };
+
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+
+                if (!process.WaitForExit(300000)) // 5 minutes timeout
+                {
+                    process.Kill();
+                    throw new TimeoutException("LUFS analysis timed out");
+                }
+
+                var stderrContent = stderr.ToString();
+
+                // Parse the JSON output from stderr
+                var lufs = ParseLUFSFromJson(stderrContent);
+                Console.WriteLine($"Measured LUFS: {lufs.MeasuredI:F2}");
+                return lufs;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"LUFS measurement failed: {ex.Message}");
+                Console.WriteLine($"Using default LUFS: {DEFAULT_SOURCE_LUFS:F2}");
+                return null;
+            }
+        }
+
+
+
+        private LoudnormMeasurements ParseLUFSFromJson(string stderr)
+        {
+            try
+            {
+                // Look for the JSON block in stderr output
+                // FFmpeg outputs the JSON between specific markers
+                var jsonMatch = Regex.Match(stderr, @"\{[^}]*""input_i""[^}]*\}", RegexOptions.Singleline);
+
+                if (!jsonMatch.Success)
+                {
+                    Console.WriteLine("Could not find JSON output in FFmpeg stderr");
+                    return null;
+                }
+
+                var jsonString = jsonMatch.Value;
+                Console.WriteLine($"Found loudnorm JSON: {jsonString}");
+
+                // Parse the JSON to extract the input_i value (integrated loudness/LUFS)
+                using var document = JsonDocument.Parse(jsonString);
+
+                return new LoudnormMeasurements
+                {
+                    MeasuredI = double.Parse(document.RootElement.GetProperty("input_i").GetString()),
+                    MeasuredTp = double.Parse(document.RootElement.GetProperty("input_tp").GetString()),
+                    MeasuredLRA = double.Parse(document.RootElement.GetProperty("input_lra").GetString()),
+                    MeasuredThresh = double.Parse(document.RootElement.GetProperty("input_thresh").GetString()),
+                    Offset = double.Parse(document.RootElement.GetProperty("target_offset").GetString())
+                };
+
+
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"JSON parsing error: {ex.Message}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing LUFS: {ex.Message}");
+                return null;
+            }
+        }
+
+        private async Task<string> NormalizeAudioAsync(string inputFile, LoudnormMeasurements currentLufs)
         {
             var fileName = Path.GetFileNameWithoutExtension(inputFile);
             var extension = Path.GetExtension(inputFile);
             var outputFile = Path.Combine(_normalizedFolder, $"{fileName}_normalized{extension}");
 
             // Calculate the adjustment needed
-            var adjustment = TARGET_LUFS - currentLufs;
-
-            Console.WriteLine($"Applying volume adjustment: {adjustment:F2} dB");
             Console.WriteLine("Normalizing audio to -14 LUFS for YouTube...");
 
-            try
-            {
-                await FFMpegArguments
-                    .FromFileInput(inputFile)
-                    .OutputToFile(outputFile, overwrite: true, options => options
-                        .WithCustomArgument("-c:v copy") // Copy video without re-encoding
-                        .WithAudioCodec(AudioCodec.Aac)  // Re-encode audio to AAC
-                        .WithAudioBitrate(320)           // 320kbps audio
-                        .WithCustomArgument($"-af volume={adjustment:F2}dB")) // Apply volume adjustment
-                    .NotifyOnProgress(progress =>
-                    {
-                        Console.Write($"\rProgress: {progress.ToString()}");
-                    })
-                    .ProcessAsynchronously();
+            var stderr = new StringBuilder();
+            var stdout = new StringBuilder();
 
-                Console.WriteLine(); // New line after progress
-                Console.WriteLine("Normalization completed!");
-            }
-            catch (Exception ex)
+
+            // Since FFMpegCore doesn't expose stderr directly, we need to use Process
+            using var process = new Process
             {
-                throw new InvalidOperationException($"Audio normalization failed for {inputFile}: {ex.Message}", ex);
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "ffmpeg",
+                    Arguments = $"-i \"{inputFile}\" -af \"loudnorm=I=-14:TP=-1:LRA=7:measured_I={currentLufs.MeasuredI}:measured_tp={currentLufs.MeasuredTp}:measured_LRA={currentLufs.MeasuredLRA}:measured_thresh={currentLufs.MeasuredThresh}:offset={currentLufs.Offset}:linear=true:print_format=summary\" -c:v copy \"{outputFile}\"",
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.OutputDataReceived += (sender, e) => {
+                if (e.Data != null)
+                {
+                    stdout.AppendLine(e.Data); ; Console.WriteLine(e.Data);
+                }
+            };
+
+            process.ErrorDataReceived += (sender, e) => {
+                if (e.Data != null) { stderr.AppendLine(e.Data); Console.WriteLine(e.Data); }
+
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+
+            if (!process.WaitForExit(300000)) // 5 minutes timeout
+            {
+                process.Kill();
+                throw new TimeoutException("LUFS conversion timed out");
             }
+
+            var stderrContent = stderr.ToString();
+
+            Console.WriteLine("Normalization completed!");
+
+
+ 
 
             return outputFile;
         }
-
-        private async Task<TimeSpan> GetVideoDurationAsync(string inputFile)
-        {
-            try
-            {
-                Console.WriteLine("Getting video duration...");
-
-                var mediaInfo = await FFProbe.AnalyseAsync(inputFile);
-                var duration = mediaInfo.Duration;
-
-                Console.WriteLine($"Duration: {duration:hh\\:mm\\:ss}");
-                return duration;
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Could not determine duration for file: {inputFile}. Error: {ex.Message}", ex);
-            }
-        }
-
 
 
         private async Task ConcatenateVideosAsync(List<ProcessedFile> files)
