@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36408.4 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YouTubeNormalizerApp", "YouTubeNormalizerApp.csproj", "{A5EA4A5A-6B2E-4441-954B-3477667EF3F3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudioNormalizer", "AudioNormalizer.csproj", "{A5EA4A5A-6B2E-4441-954B-3477667EF3F3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

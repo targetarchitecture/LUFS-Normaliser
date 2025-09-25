@@ -3,22 +3,22 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace YouTubeNormalizerApp
+namespace AudioNormalizerApp
 {
     public class ProcessedFile
     {   public string? OriginalPath { get; set; }
         public string? NormalizedPath { get; set; }
     }
 
-    public class YouTubeNormalizer
+    public class AudioNormalizer
     {
-        private const double TARGET_LUFS = -14.0; // YouTube recommended LUFS
+        private const double TARGET_LUFS = -16.0; // -14 YouTube recommended LUFS
         private readonly string _sourceFolder;
         private readonly string _normalizedFolder;
      //private readonly string _ffmpegPath;
 
 
-        public YouTubeNormalizer(string sourceFolder, string normalizedFolder) //, string ffmpegPath = "ffmpeg")
+        public AudioNormalizer(string sourceFolder, string normalizedFolder) //, string ffmpegPath = "ffmpeg")
         {
             _sourceFolder = sourceFolder ?? throw new ArgumentNullException(nameof(sourceFolder));
             _normalizedFolder = normalizedFolder ?? throw new ArgumentNullException(nameof(normalizedFolder));
@@ -161,7 +161,7 @@ namespace YouTubeNormalizerApp
                 process.BeginErrorReadLine();
 
 
-                if (!process.WaitForExit(300000)) // 5 minutes timeout
+                if (!process.WaitForExit(600000)) // 10 minutes timeout
                 {
                     process.Kill();
                     throw new TimeoutException("LUFS analysis timed out");
@@ -387,7 +387,7 @@ namespace YouTubeNormalizerApp
                     return;
                 }
 
-                var normalizer = new YouTubeNormalizer(sourceFolder, normalizedFolder); //, ffmpegPath);
+                var normalizer = new AudioNormalizer(sourceFolder, normalizedFolder); //, ffmpegPath);
                 await normalizer.ProcessVideosAsync();
 
                 Console.WriteLine("\nPress any key to exit...");
